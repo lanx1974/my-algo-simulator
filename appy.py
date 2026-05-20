@@ -2,112 +2,126 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# 1. Config and Wide Interface
-st.set_page_config(page_title="Wealth Runway Engine", layout="wide")
-st.title("💰 Personal Wealth Runway & Compound Engine")
-st.write("Stop trying to beat the market. Start optimizing the mathematical inputs of your personal net worth.")
+# 1. Page Config
+st.set_page_config(page_title="16-Year Catch-Up Engine", layout="wide")
+st.title("🚀 The 16-Year Accelerated Retirement Matrix")
+st.write("A customized wealth-compounding framework engineered for maximum efficiency between age 52 and 68.")
 
 # ==========================================
-# 2. THE WEALTH CONTROL PANEL (SIDEBAR)
+# 2. CONTROL PANEL (SIDEBAR)
 # ==========================================
-st.sidebar.header("🎛️ Financial Inputs")
+st.sidebar.header("🎛️ Your Current Position")
 
-current_net_worth = st.sidebar.number_input("Current Net Worth ($)", min_value=0, value=10000, step=5000)
-monthly_contribution = st.sidebar.slider("Monthly Savings/Investment ($)", min_value=0, max_value=10000, value=1000, step=100)
+current_age = 52
+target_age = 68
+years_running = target_age - current_age
 
-st.sidebar.subheader("📈 Growth & Inflation Assumptions")
-# 8% to 10% is the historical long-term average for the S&P 500
-expected_return = st.sidebar.slider("Expected Market Annual Return (%)", min_value=3.0, max_value=12.0, value=8.5, step=0.1) / 100
-inflation_rate = st.sidebar.slider("Assumed Annual Inflation Rate (%)", min_value=0.0, max_value=6.0, value=2.5, step=0.1) / 100
+initial_pot = st.sidebar.number_input("Current Retirement Pot (£)", min_value=0, value=50000, step=10000)
+net_monthly_out_of_pocket = st.sidebar.slider("Net Monthly Cash You Can Invest (£)", min_value=100, max_value=5000, value=1000, step=100)
 
-st.sidebar.subheader("🏁 The Freedom Target")
-desired_monthly_income = st.sidebar.number_input("Desired Monthly Income in Retirement ($)", min_value=1000, value=5000, step=500)
+st.sidebar.markdown("---")
+st.sidebar.header("⚡ Tax Arbitrage Boost")
+tax_bracket = st.sidebar.selectbox(
+    "Your UK Income Tax Bracket:",
+    ["Basic Rate (20% Tax Relief)", "Higher Rate (40% Tax Relief)", "Additional Rate (45% Tax Relief)"]
+)
 
-# ==========================================
-# 3. FINANCIAL FREEDOM MATHEMATICS
-# ==========================================
-# Real return adjusted for inflation drag
-real_annual_return = expected_return - inflation_rate
-real_monthly_return = (1 + real_annual_return) ** (1/12) - 1
-
-# The 4% Rule states you need 25x your annual expenses to live off your portfolio indefinitely
-annual_expenses_target = desired_monthly_income * 12
-fi_number = annual_expenses_target / 0.04
-
-# Simulation projection loop (Max 50 years into the future to find the milestone)
-months_to_simulate = 50 * 12
-balances = []
-total_contributions = []
-total_interest_earned = []
-
-current_balance = current_net_worth
-cumulative_contributions = current_net_worth
-cumulative_interest = 0.0
-
-fi_achieved_month = None
-
-for month in range(1, months_to_simulate + 1):
-    # Calculate monthly compound interest growth
-    interest_this_month = current_balance * real_monthly_return
-    cumulative_interest += interest_this_month
-    
-    # Inject monthly savings injection
-    current_balance += interest_this_month + monthly_contribution
-    cumulative_contributions += monthly_contribution
-    
-    balances.append(current_balance)
-    total_contributions.append(cumulative_contributions)
-    total_interest_earned.append(cumulative_interest)
-    
-    # Check if the milestone number is hit
-    if current_balance >= fi_number and fi_achieved_month is None:
-        fi_achieved_month = month
-
-# Build DataFrame for timelines
-timeline_months = np.arange(1, months_to_simulate + 1)
-df_projector = pd.DataFrame({
-    "Net Worth (Inflation Adjusted)": balances,
-    "Principal Contributions": total_contributions,
-    "Total Compound Gains": total_interest_earned
-}, index=timeline_months / 12) # Index displayed cleanly as fractional years
-df_projector.index.name = "Years from Now"
+st.sidebar.markdown("---")
+st.sidebar.header("📈 Market Settings")
+market_return = st.sidebar.slider("Expected Annual Index Return (%)", min_value=4.0, max_value=10.0, value=7.5, step=0.5) / 100
+inflation_drag = st.sidebar.slider("Assumed Inflation (%)", min_value=0.0, max_value=5.0, value=2.5, step=0.1) / 100
 
 # ==========================================
-# 4. SCORECARD INTERFACE DISPLAY
+# 3. MATHEMATICAL COMPUTATIONS
 # ==========================================
-st.subheader("🏁 Your Strategic Milestones")
-col_m1, col_m2, col_m3 = st.columns(3)
-
-col_m1.metric("Target Freedom Capital (FI Number)", f"${fi_number:,.0f}", "Based on 4% Rule")
-col_m2.metric("Real Growth Rate (Net of Inflation)", f"{real_annual_return * 100:.2f}%")
-
-if fi_achieved_month:
-    years_to_fi = fi_achieved_month / 12
-    col_m3.metric("Time to Complete Financial Freedom", f"{years_to_fi:.1f} Years", f"Target Hit at Age +{int(years_to_fi)}")
+# Compute the instant percentage boost from tax relief
+if "Basic" in tax_bracket:
+    boost_factor = 1 / (1 - 0.20)  # Grosses up £80 to £100 (25% boost)
+    tax_gained_pct = "25%"
+elif "Higher" in tax_bracket:
+    boost_factor = 1 / (1 - 0.40)  # Grosses up £60 to £100 (66.6% boost)
+    tax_gained_pct = "66.6%"
 else:
-    col_m3.metric("Time to Complete Financial Freedom", "50+ Years", "Increase savings or market allocation")
+    boost_factor = 1 / (1 - 0.45)  # Grosses up £55 to £100 (81.8% boost)
+    tax_gained_pct = "81.8%"
+
+# Calculate the actual gross amount entering the investment pot monthly
+gross_monthly_contribution = net_monthly_out_of_pocket * boost_factor
+
+# Calculate real rate of return net of inflation
+real_annual_growth = market_return - inflation_drag
+real_monthly_growth = (1 + real_annual_growth) ** (1/12) - 1
+
+# Simulation Loop for 16 years (192 months)
+total_months = years_running * 12
+pot_balances = []
+out_of_pocket_total = []
+government_contributions = []
+
+running_pot = initial_pot
+cumulative_out_of_pocket = initial_pot
+cumulative_gov_boost = 0.0
+
+for m in range(1, total_months + 1):
+    # Market growth on existing pot
+    growth_earnings = running_pot * real_monthly_growth
+    
+    # Calculate government's free addition this month
+    monthly_gov_boost = gross_monthly_contribution - net_monthly_out_of_pocket
+    
+    # Update running totals
+    running_pot += growth_earnings + gross_monthly_contribution
+    cumulative_out_of_pocket += net_monthly_out_of_pocket
+    cumulative_gov_boost += monthly_gov_boost
+    
+    # Track data points
+    pot_balances.append(running_pot)
+    out_of_pocket_total.append(cumulative_out_of_pocket)
+    government_contributions.append(cumulative_gov_boost)
+
+# Build Time Matrix DataFrame
+timeline_years = np.arange(1, total_months + 1) / 12
+df_timeline = pd.DataFrame({
+    "Total Retirement Pot": pot_balances,
+    "Your Cash Contributed": out_of_pocket_total,
+    "Free Gov Tax Relief Boost": government_contributions
+}, index=timeline_years + current_age)
+df_timeline.index.name = "Your Age"
+
+# Final values for display
+final_pot_size = pot_balances[-1]
+total_cash_put_in = out_of_pocket_total[-1]
+total_free_gov_money = government_contributions[-1]
+compound_growth_gained = final_pot_size - total_cash_put_in - total_free_gov_money
+
+# Safe sustainable annual income using a standard conservative 3.5% withdrawal rate at age 68
+annual_retirement_income = final_pot_size * 0.035
+
+# ==========================================
+# 4. DASHBOARD DISPLAY
+# ==========================================
+st.subheader(f"📊 The Age 68 Projection Scorecard ({years_running} Year Sprint)")
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("Projected Pot Size at 68", f"£{final_pot_size:,.0f}", "Inflation Adjusted")
+col2.metric("Instant Tax Return Boost", f"+{tax_gained_pct}", "Day-One Alpha")
+col3.metric("Free Gov Money Harvested", f"£{total_free_gov_money:,.0f}")
+col4.metric("Est. Sustainable Yearly Income", f"£{annual_retirement_income:,.0f}", "At 3.5% Withdrawal")
 
 st.markdown("---")
-st.subheader("📈 The Compounding Curve Matrix")
-st.write("Watch the intersection where **Total Compound Gains** overtakes your **Principal Contributions**. That is the inflection point where your money works harder than you do.")
+st.subheader("📈 Runway Trajectory Profile")
+st.write("See how combining your cash, the immediate government tax boost, and market index compounding builds your base:")
+st.area_chart(df_timeline[["Your Cash Contributed", "Free Gov Tax Relief Boost", "Total Retirement Pot"]])
 
-# Render stream chart to emphasize the raw scaling power of compound interest
-st.area_chart(df_projector[["Principal Contributions", "Total Compound Gains"]], use_container_width=True)
-
-# Data breakdown tables for precision scannability on iPad
-with st.expander("📊 View Detailed Decade-by-Decide Wealth Breakdown"):
-    # Pull status slices at year 5, 10, 15, 20, 30, and 40
-    intervals = [5, 10, 15, 20, 30, 40]
-    breakdown_rows = []
-    
-    for year in intervals:
-        month_idx = int(year * 12) - 1
-        if month_idx < len(balances):
-            breakdown_rows.append({
-                "Timeline": f"Year {year}",
-                "Projected Net Worth": f"${balances[month_idx]:,.2f}",
-                "Your Invested Cash": f"${total_contributions[month_idx]:,.2f}",
-                "Free Money Harvested (Interest)": f"${total_interest_earned[month_idx]:,.2f}"
-            })
-            
-    st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+with st.expander("📝 Year-by-Year Strategic Breakdown"):
+    breakdown_data = []
+    for year in range(1, years_running + 1):
+        m_idx = (year * 12) - 1
+        age_label = current_age + year
+        breakdown_data.append({
+            "Your Age": int(age_label),
+            "Total Pot Value": f"£{pot_balances[m_idx]:,.2f}",
+            "Your Invested Capital": f"£{out_of_pocket_total[m_idx]:,.2f}",
+            "Total Government Boost": f"£{government_contributions[m_idx]:,.2f}"
+        })
+    st.dataframe(pd.DataFrame(breakdown_data), use_container_width=True, hide_index=True)
