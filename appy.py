@@ -22,8 +22,6 @@ if start_date >= end_date:
     st.error("Error: Start Date must be earlier than End Date.")
 else:
     # 3. Secret Data Buffer Fix
-    # We fetch data starting 100 days BEFORE the user's start date 
-    # so the 50-day Moving Average line is already pre-calculated by Day 1.
     buffer_days = datetime.timedelta(days=100)
     fetch_start = start_date - buffer_days
 
@@ -37,11 +35,14 @@ else:
         if df.empty:
             st.error("No data found for this period. Try a different date or ticker.")
         else:
+            # 🔥 THE CRITICAL TIMEZONE FIX: 
+            # This strips the timezone info away so it matches your iPad's calendars perfectly.
+            df.index = df.index.tz_localize(None)
+            
             # 4. Math Engine
             df['SMA_50'] = df['Close'].rolling(window=50).mean()
             
             # Slice the dataset down to the EXACT window requested by the user
-            # This throws away the hidden 100-day buffer data now that math is done
             df_test = df.loc[pd.to_datetime(start_date):pd.to_datetime(end_date)].copy()
             
             if df_test.empty:
