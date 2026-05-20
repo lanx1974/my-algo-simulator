@@ -4,36 +4,31 @@ import pandas as pd
 import datetime
 
 # 1. Config and Interface
-st.set_page_config(page_title="Algo Matrix", layout="wide") # 'wide' layout utilizes the full iPad screen
-st.title("🖥️ Quantitative Strategy Performance Matrix")
-st.write("Compare your rules across an entire watchlist simultaneously to find where the alpha hides.")
+st.set_page_config(page_title="Mean Reversion Matrix", layout="wide")
+st.title("🛡️ Mean Reversion Volatility Matrix")
+st.write("This engine stops chasing trends. Instead, it buys extreme market panics and sells the rebounds.")
 
 # ==========================================
 # 2. CONTROL PANEL (SIDEBAR)
 # ==========================================
-st.sidebar.header("🎛️ Strategy Parameters")
+st.sidebar.header("🎛️ Volatility Parameters")
 
-# Let user input a comma-separated list of tickers
 ticker_input = st.sidebar.text_area(
     "Enter Tickers (separated by commas):", 
-    "AAPL, MSFT, TSLA, NVDA, AMD, SPY, QQQ"
+    "AAPL, MSFT, TSLA, NVDA, AMD, SPY, QQQ, AMZN, META, GOOGL"
 )
 
-st.sidebar.subheader("1. Trend Filter")
-sma_window = st.sidebar.slider("Moving Average (Days)", min_value=20, max_value=200, value=50)
-
-st.sidebar.subheader("2. Momentum Filter")
-rsi_min = st.sidebar.slider("Minimum RSI to Buy", min_value=40, max_value=60, value=50)
-rsi_max = st.sidebar.slider("Maximum RSI to Buy", min_value=65, max_value=85, value=70)
+# Bollinger Band inputs
+bb_window = st.sidebar.slider("Base Moving Average (Days)", min_value=10, max_value=50, value=20)
+num_std = st.sidebar.slider("Standard Deviation width (Rubber Band Stretch)", min_value=1.5, max_value=3.0, value=2.0, step=0.1)
 
 # Dates
 col_date1, col_date2 = st.columns(2)
 with col_date1:
-    start_date = st.date_input("Start Date", datetime.date(2020, 1, 1))
+    start_date = st.date_input("Start Date", datetime.date(2021, 1, 1))
 with col_date2:
     end_date = st.date_input("End Date", datetime.date.today())
 
-# Process the input string into a clean Python list
 tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
 
 if start_date >= end_date:
@@ -41,48 +36,34 @@ if start_date >= end_date:
 elif not tickers:
     st.warning("Please enter at least one valid stock ticker.")
 else:
-    # Buffer calculation for indicators
-    buffer_days = datetime.timedelta(days=sma_window + 50)
+    buffer_days = datetime.timedelta(days=bb_window + 50)
     fetch_start = start_date - buffer_days
-
-    # Container to hold final metrics for the summary table
     matrix_results = []
-
-    # Progress bar for visual feedback on iPad
     progress_bar = st.progress(0)
     
     # ==========================================
-    # 3. CORE PROCESSING LOOP (THE SCANNER)
+    # 3. CORE PROCESSING LOOP (COUNTER-TREND)
     # ==========================================
     for i, t in enumerate(tickers):
-        # Update progress bar dynamically
         progress_bar.progress((i + 1) / len(tickers))
         
         try:
-            # Fetch data for single ticker
             df = yf.Ticker(t).history(start=fetch_start, end=end_date)
-            
             if df.empty:
-                continue # Skip if no data found
+                continue
                 
             df.index = df.index.tz_localize(None)
             
-            # Math: RSI
-            change = df['Close'].diff()
-            gain = change.mask(change < 0, 0.0)
-            loss = change.mask(change > 0, 0.0).abs()
-            avg_gain = gain.ewm(com=13, adjust=False).mean()
-            avg_loss = loss.ewm(com=13, adjust=False).mean()
-            avg_loss = avg_loss.replace(0, 0.00001)
-            rs = avg_gain / avg_loss
-            df['RSI'] = 100 - (100 / (1 + rs))
+            # --- BOLLINGER BAND MATHEMATICS ---
+            df['Middle_Band'] = df['Close'].rolling(window=bb_window).mean()
+            df['Std_Dev'] = df['Close'].rolling(window=bb_window).std()
             
-            # Math: SMA
-            df['SMA'] = df['Close'].rolling(window=sma_window).mean()
+            # Upper and Lower boundaries of normal asset volatility
+            df['Upper_Band'] = df['Middle_Band'] + (num_std * df['Std_Dev'])
+            df['Lower_Band'] = df['Middle_Band'] - (num_std * df['Std_Dev'])
+            # ----------------------------------
             
-            # Slice to window
             df_test = df.loc[pd.to_datetime(start_date):pd.to_datetime(end_date)].copy()
-            
             if df_test.empty or len(df_test) < 2:
                 continue
                 
@@ -95,18 +76,22 @@ else:
             
             for idx, row in df_test.iterrows():
                 price = row['Close']
-                sma = row['SMA']
-                rsi = row['RSI']
+                lower_b = row['Lower_Band']
+                upper_b = row['Upper_Band']
+                mid_b = row['Middle_Band']
                 
-                if pd.isna(sma) or pd.isna(rsi):
+                if pd.isna(lower_b) or pd.isna(upper_b):
                     portfolio_history.append(cash)
                     continue
                     
-                if price > sma and (rsi >= rsi_min) and (rsi <= rsi_max) and not holding:
+                # BUY RULE: Price drops BELOW the extreme lower boundary (Panic Buy)
+                if price < lower_b and not holding:
                     shares = cash / price
                     cash = 0
                     holding = True
-                elif (price < sma or rsi < 45) and holding:
+                    
+                # SELL RULE: Price snaps back up to the historical middle average (Take Profit)
+                elif price >= mid_b and holding:
                     cash = shares * price
                     shares = 0
                     holding = False
@@ -124,7 +109,6 @@ else:
             alpha = algo_pct_return - bench_pct_return
             status = "🟢 BEAT" if alpha > 0 else "🔴 LOST"
             
-            # Append rows into a master database list
             matrix_results.append({
                 "Ticker": t,
                 "Algorithm Return": algo_pct_return,
@@ -133,26 +117,22 @@ else:
                 "Market Status": status
             })
             
-        except Exception as e:
-            # If an asset fails (like a typo), ignore it and move to next asset
+        except Exception:
             continue
 
-    # Clean up progress bar when done
     progress_bar.empty()
 
     # ==========================================
-    # 4. REPORTING LOGIC & AVERAGES
+    # 4. DISP_REPORT
     # ==========================================
     if matrix_results:
         summary_df = pd.DataFrame(matrix_results)
         
-        # Calculate cross-watchlist macro averages
         avg_algo = summary_df["Algorithm Return"].mean()
         avg_bench = summary_df["Buy & Hold Return"].mean()
         avg_alpha = summary_df["Alpha Generated"].mean()
         
-        # Display Overview Row
-        st.subheader("🏁 Global Watchlist Averages")
+        st.subheader("🏁 Mean Reversion Portfolio Averages")
         m_col1, m_col2, m_col3 = st.columns(3)
         
         m_col1.metric("Average Algo Return", f"{avg_algo:.2f}%")
@@ -167,18 +147,15 @@ else:
         st.markdown("---")
         st.subheader("📊 Individual Asset Breakdown")
         
-        # Format columns for scannability
         styled_df = summary_df.copy()
         styled_df["Algorithm Return"] = styled_df["Algorithm Return"].map("{:.2f}%".format)
         styled_df["Buy & Hold Return"] = styled_df["Buy & Hold Return"].map("{:.2f}%".format)
         styled_df["Alpha Generated"] = styled_df["Alpha Generated"].map("{:+.2f}%".format)
         
-        # Render interactive table on iPad
         st.dataframe(
             styled_df.sort_values(by="Alpha Generated", ascending=False), 
             use_container_width=True,
             hide_index=True
         )
-        
     else:
-        st.error("Could not compute matrix data. Ensure symbols are valid or adjust your date range parameters.")
+        st.error("No data could be processed. Adjust parameters.")
