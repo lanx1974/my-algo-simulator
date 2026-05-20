@@ -1,83 +1,116 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import datetime
 
-# 1. App Layout and Title
-st.set_page_config(page_title="Algo Simulator", layout="centered")
-st.title("📈 6-Month Algo Simulation Engine")
-st.write("This tool simulates investing $10,000 using a 50-day moving average strategy.")
+# 1. Config and Interface
+st.set_page_config(page_title="Algo Backtester", layout="centered")
+st.title("⏳ Historical Backtest Engine")
+st.write("Test your strategies against history to see how they perform before risking real capital.")
 
-# 2. User Input on your Phone/iPad
-ticker = st.text_input("Enter a Stock Ticker (e.g., AAPL, TSLA, MSFT):", "AAPL").upper()
+# 2. Interactive Inputs for your iPad
+ticker = st.text_input("Stock Ticker:", "AAPL").upper()
 
-# 3. Fetch Stock Data from Yahoo Finance
-@st.cache_data(ttl=3600)  # Caches data for 1 hour so the app runs lightning-fast
-def get_stock_data(symbol):
-    # Fetch 1 year of data so we can calculate a clean 50-day average
-    return yf.Ticker(symbol).history(period="1y")
+col_date1, col_date2 = st.columns(2)
+with col_date1:
+    start_date = st.date_input("Start Date", datetime.date(2018, 1, 1))
+with col_date2:
+    end_date = st.date_input("End Date", datetime.date(2023, 1, 1))
 
-try:
-    df = get_stock_data(ticker)
-    
-    if df.empty:
-        st.error("No data found. Please check the stock ticker symbol.")
-    else:
-        # 4. Calculate the 50-Day Simple Moving Average (SMA)
-        df['SMA_50'] = df['Close'].rolling(window=50).mean()
+# Safety Check: Ensure start date is before end date
+if start_date >= end_date:
+    st.error("Error: Start Date must be earlier than End Date.")
+else:
+    # 3. Secret Data Buffer Fix
+    # We fetch data starting 100 days BEFORE the user's start date 
+    # so the 50-day Moving Average line is already pre-calculated by Day 1.
+    buffer_days = datetime.timedelta(days=100)
+    fetch_start = start_date - buffer_days
+
+    @st.cache_data(ttl=3600)
+    def fetch_historical_data(symbol, start, end):
+        return yf.Ticker(symbol).history(start=start, end=end)
+
+    try:
+        df = fetch_historical_data(ticker, fetch_start, end_date)
         
-        # Crop data to just the last 126 trading days (exactly 6 calendar months)
-        df_sim = df.iloc[-126:].copy()
-        
-        # 5. Run the Simulation Loop
-        starting_cash = 10000.0
-        cash = starting_cash
-        shares = 0
-        holding = False
-        portfolio_values = []
-        
-        for index, row in df_sim.iterrows():
-            price = row['Close']
-            sma = row['SMA_50']
+        if df.empty:
+            st.error("No data found for this period. Try a different date or ticker.")
+        else:
+            # 4. Math Engine
+            df['SMA_50'] = df['Close'].rolling(window=50).mean()
             
-            # STRATEGY RULES:
-            # Rule A: If price goes ABOVE the average line and we have cash -> BUY
-            if price > sma and not holding:
-                shares = cash / price
-                cash = 0
-                holding = True
+            # Slice the dataset down to the EXACT window requested by the user
+            # This throws away the hidden 100-day buffer data now that math is done
+            df_test = df.loc[pd.to_datetime(start_date):pd.to_datetime(end_date)].copy()
             
-            # Rule B: If price falls BELOW the average line and we hold shares -> SELL
-            elif price < sma and holding:
-                cash = shares * price
+            if df_test.empty:
+                st.error("Insufficient market days found in this specific window.")
+            else:
+                # 5. Core Simulation Loop
+                starting_cash = 10000.0
+                cash = starting_cash
                 shares = 0
                 holding = False
-            
-            # Record what our total portfolio is worth at the end of this trading day
-            day_value = (shares * price) if holding else cash
-            portfolio_values.append(day_value)
-            
-        # Add the simulation history into our data table
-        df_sim['Portfolio_Value'] = portfolio_values
-        
-        # 6. Calculate performance metrics
-        final_val = portfolio_values[-1]
-        algo_return = ((final_val - starting_cash) / starting_cash) * 100
-        
-        # Calculate benchmark (What if you just bought and held the stock normally?)
-        bench_return = ((df_sim['Close'].iloc[-1] - df_sim['Close'].iloc[0]) / df_sim['Close'].iloc[0]) * 100
-        bench_final = starting_cash * (1 + (bench_return / 100))
+                portfolio_history = []
+                
+                for idx, row in df_test.iterrows():
+                    price = row['Close']
+                    sma = row['SMA_50']
+                    
+                    # Buy Logic
+                    if price > sma and not holding and not pd.isna(sma):
+                        shares = cash / price
+                        cash = 0
+                        holding = True
+                    # Sell Logic
+                    elif price < sma and holding:
+                        cash = shares * price
+                        shares = 0
+                        holding = False
+                        
+                    # Calculate net worth at the end of the day
+                    current_net_worth = (shares * price) if holding else cash
+                    portfolio_history.append(current_net_worth)
+                    
+                df_test['Portfolio_Value'] = portfolio_history
+                
+                # 6. Scorecard Calculations
+                final_portfolio_value = portfolio_history[-1]
+                algo_pct_return = ((final_portfolio_value - starting_cash) / starting_cash) * 100
+                
+                initial_stock_price = df_test['Close'].iloc[0]
+                final_stock_price = df_test['Close'].iloc[-1]
+                bench_pct_return = ((final_stock_price - initial_stock_price) / initial_stock_price) * 100
+                final_benchmark_value = starting_cash * (1 + (bench_pct_return / 100))
+                
+                # 7. Visual Results
+                st.subheader("📊 Backtest Results Scorecard")
+                metric_col1, metric_col2 = st.columns(2)
+                
+                metric_col1.metric(
+                    label="Algorithm Final Value", 
+                    value=f"${final_portfolio_value:,.2f}", 
+                    delta=f"{algo_pct_return:+.2f}%"
+                )
+                metric_col2.metric(
+                    label="Buy & Hold Benchmark", 
+                    value=f"${final_benchmark_value:,.2f}", 
+                    delta=f"{bench_pct_return:+.2f}%"
+                )
+                
+                # Check for Outperformance
+                alpha_score = algo_pct_return - bench_pct_return
+                if alpha_score > 0:
+                    st.success(f"🔥 Success! Your algorithm beat the market by {alpha_score:.2f}% during this timeframe.")
+                else:
+                    st.warning(f"⚠️ Market Underperformance. Your strategy lost to standard buy-and-hold by {abs(alpha_score):.2f}%.")
 
-        # 7. Display Results visually on iPad
-        st.subheader("📊 Performance vs. The Market")
-        col1, col2 = st.columns(2)
-        col1.metric("Your Algorithm Value", f"${final_val:,.2f}", f"{algo_return:+.2f}%")
-        col2.metric("Buy & Hold Benchmark", f"${bench_final:,.2f}", f"{bench_return:+.2f}%")
-        
-        st.subheader("📉 Your Simulated Account Growth")
-        st.line_chart(df_sim['Portfolio_Value'])
-        
-        st.subheader("Stock Price vs. 50-Day Moving Average Line")
-        st.line_chart(df_sim[['Close', 'SMA_50']])
-
-except Exception as e:
-    st.error(f"An unexpected error occurred: {e}")
+                st.subheader("📈 Strategy Growth Performance")
+                st.line_chart(df_test['Portfolio_Value'])
+                
+                st.subheader("Price Movement Chart Context")
+                st.line_chart(df_test[['Close', 'SMA_50']])
+                
+    except Exception as error_msg:
+        st.error(f"System Error: {error_msg}")
