@@ -3,163 +3,170 @@ import yfinance as yf
 import pandas as pd
 import datetime
 
-# 1. Config and Interface
-st.set_page_config(page_title="Friction-Adjusted Algo", layout="wide")
-st.title("📊 Friction-Adjusted Macro Rotation Engine")
-st.write("Enforces a strict monthly rebalancing interval and applies transactional cost penalties to simulate realistic performance.")
+# 1. Page Configuration
+st.set_page_config(page_title="Volatility Harvester", layout="wide")
+st.title("🏛️ Strategic Asset Allocation & Volatility Harvester")
+st.write("This engine abandons market timing. It builds a diversified portfolio and uses quarterly rebalancing to mathematically harvest returns.")
 
 # ==========================================
-# 2. CONTROL PANEL (SIDEBAR)
+# 2. THE DIVERSIFIED PORTFOLIO CONFIGURATOR
 # ==========================================
-st.sidebar.header("🎛️ System Parameters")
+st.sidebar.header("🎛️ Asset Allocation Weights")
+st.sidebar.write("Configure your permanent portfolio. Weights must add up to exactly 100%.")
 
-asset_a = st.sidebar.text_input("Asset A (Risk-On / Growth):", "QQQ").upper()
-asset_b = st.sidebar.text_input("Asset B (Risk-Off / Safety):", "TLT").upper()
+# Standard Institutional "All-Weather-Lite" Asset Class Mix
+w_spy = st.sidebar.slider("US Large-Cap Stocks (SPY) %", 0, 100, 50)
+w_tlt = st.sidebar.slider("Long-Term US Bonds (TLT) %", 0, 100, 30)
+w_gld = st.sidebar.slider("Gold Safe-Haven (GLD) %", 0, 100, 10)
+w_vnq = st.sidebar.slider("Real Estate Trusts (VNQ) %", 0, 100, 10)
 
-momentum_lookback = st.sidebar.slider(
-    "Momentum Lookback (Trading Days)", 
-    min_value=10, max_value=120, value=60
-)
+total_weight = w_spy + w_tlt + w_gld + w_vnq
+
+# Map configuration into operational tracking dictionaries
+allocation_dict = {"SPY": w_spy / 100, "TLT": w_tlt / 100, "GLD": w_gld / 100, "VNQ": w_vnq / 100}
+tickers = list(allocation_dict.keys())
 
 st.sidebar.markdown("---")
-st.sidebar.header("💸 Transaction Friction Cost")
-# 0.20% is standard for institutional retail modeling (accounts for slippage + broker fees)
-fee_pct = st.sidebar.slider("Transaction Fee per Switch (%)", min_value=0.0, max_value=1.0, value=0.20, step=0.05) / 100
+st.sidebar.header("💸 Transaction Costs")
+fee_pct = st.sidebar.slider("Rebalancing Friction/Slippage (%)", min_value=0.0, max_value=0.5, value=0.10, step=0.05) / 100
 
-# Dates
+# Testing Boundaries
 col_date1, col_date2 = st.columns(2)
 with col_date1:
     start_date = st.date_input("Start Date", datetime.date(2018, 1, 1))
 with col_date2:
     end_date = st.date_input("End Date", datetime.date.today())
 
-if start_date >= end_date:
+# Safety Check: Weights MUST sum to 100% to ensure mathematical validity
+if total_weight != 100:
+    st.sidebar.error(f"❌ Allocation Failure: Current total is {total_weight}%. Weights must add up to exactly 100%!")
+elif start_date >= end_date:
     st.error("Error: Start Date must be earlier than End Date.")
 else:
-    buffer_days = datetime.timedelta(days=momentum_lookback + 30)
-    fetch_start = start_date - buffer_days
-
+    # Fetch historical data for all core assets simultaneously
     @st.cache_data(ttl=3600)
-    def fetch_data(ticker, start, end):
-        return yf.Ticker(ticker).history(start=start, end=end)['Close']
+    def fetch_matrix_data(symbols, start, end):
+        data = yf.download(symbols, start=start, end=end)['Close']
+        return data
 
     try:
-        price_a = fetch_data(asset_a, fetch_start, end_date)
-        price_b = fetch_data(asset_b, fetch_start, end_date)
+        df_raw = fetch_matrix_data(tickers, start_date, end_date)
         
-        if price_a.empty or price_b.empty:
-            st.error("Error fetching historical data. Verify tickers.")
+        if df_raw.empty:
+            st.error("Error pulling historical asset array.")
         else:
-            df = pd.DataFrame({asset_a: price_a, asset_b: price_b}).ffill().dropna()
+            # Clean up timeline indices
+            df = df_raw.ffill().dropna()
             df.index = df.index.tz_localize(None)
             
-            # Math: Structural Momentum Changes
-            df[f'{asset_a}_Mom'] = df[asset_a].pct_change(periods=momentum_lookback)
-            df[f'{asset_b}_Mom'] = df[asset_b].pct_change(periods=momentum_lookback)
+            # --- ARCHITECTURAL UPGRADE: THE QUARTERLY REBALANCE CLOCK ---
+            # Group by year-quarter entries to find the absolute last trading day of each quarter
+            quarter_end_dates = df.groupby(df.index.to_period('Q')).apply(lambda x: x.index[-1]).values
             
-            df_test = df.loc[pd.to_datetime(start_date):pd.to_datetime(end_date)].copy()
+            # 3. Allocation Simulation Engine
+            starting_capital = 10000.0
+            portfolio_history = []
+            rebalance_log = []
             
-            if df_test.empty:
-                st.error("No overlap market data found.")
-            else:
-                # 🔥 ARCHITECTURAL UPGRADE 1: IDENTIFY LAST TRADING DAY OF EACH MONTH
-                # We group data by year-month period and extract the absolute last chronological date entry.
-                month_end_dates = df_test.groupby(df_test.index.to_period('M')).apply(lambda x: x.index[-1]).values
+            # Tracker dictionaries to maintain state across the historical loop
+            shares_held = {t: 0.0 for t in tickers}
+            is_initialized = False
+            total_fees_accumulated = 0.0
+            
+            for idx, row in df.iterrows():
+                # On Day 1: Deploy total starting cash across assets based on target allocation percentages
+                if not is_initialized:
+                    for t in tickers:
+                        target_cash_allocation = starting_capital * allocation_dict[t]
+                        shares_held[t] = target_cash_allocation / row[t]
+                    is_initialized = True
                 
-                # 3. Friction-Injected Simulation Loop
-                starting_cash = 10000.0
-                current_value = starting_cash
-                current_allocation = None 
-                units_held = 0.0
+                # Compute current valuation of all assets combined at today's specific price points
+                current_portfolio_value = sum(shares_held[t] * row[t] for t in tickers)
                 
-                portfolio_history = []
-                allocation_log = []
-                total_trades = 0
-                total_fees_paid = 0.0
-                
-                for idx, row in df_test.iterrows():
-                    val_a = row[asset_a]
-                    val_b = row[asset_b]
-                    mom_a = row[f'{asset_a}_Mom']
-                    mom_b = row[f'{asset_b}_Mom']
+                # CHECK THE REBALANCE CLOCK: Is today the last trading day of a quarter?
+                if idx in quarter_end_dates:
+                    quarter_fees = 0.0
                     
-                    if pd.isna(mom_a) or pd.isna(mom_b):
-                        portfolio_history.append(current_value)
-                        continue
+                    # Calculate what the ideal asset balance SHOULD look like right now
+                    ideal_allocations = {t: current_portfolio_value * allocation_dict[t] for t in tickers}
                     
-                    # 🔥 ARCHITECTURAL UPGRADE 2: COERCED MONTHLY REBALANCING CLOCK
-                    # The system reads daily price ticks to build charts, but logic triggers ONLY on month-ends
-                    if idx in month_end_dates:
-                        target_allocation = asset_a if mom_a > mom_b else asset_b
+                    # Execute adjustments asset by asset
+                    for t in tickers:
+                        actual_current_value = shares_held[t] * row[t]
+                        ideal_target_value = ideal_allocations[t]
                         
-                        # Execute Switch if asset velocity dominance has crossed over
-                        if current_allocation != target_allocation:
-                            # 1. Realize capital from yesterday's asset
-                            if current_allocation == asset_a:
-                                current_value = units_held * val_a
-                            elif current_allocation == asset_b:
-                                current_value = units_held * val_b
-                            
-                            # 2. APPLY THE FRICTION TAX 
-                            # Deduct the cost penalty before deploying capital into the next asset
-                            fee_deduction = current_value * fee_pct
-                            current_value -= fee_deduction
-                            total_fees_paid += fee_deduction
-                            total_trades += 1
-                            
-                            # 3. Deploy remaining capital into the new trend leader
-                            current_allocation = target_allocation
-                            if current_allocation == asset_a:
-                                units_held = current_value / val_a
-                            else:
-                                units_held = current_value / val_b
-                                
-                            allocation_log.append(
-                                f"🔄 {idx.strftime('%Y-%m-%d')} | Rotated to {current_allocation} | "
-                                f"Fee Paid: ${fee_deduction:.2f} | Remaining Portfolio: ${current_value:,.2f}"
-                            )
-                    
-                    # Compute standard running valuation daily for high-fidelity charting
-                    if current_allocation is None:
-                        # Before first signal is evaluated at month end, sit in raw cash
-                        day_worth = current_value
-                    elif current_allocation == asset_a:
-                        day_worth = units_held * val_a
-                    else:
-                        day_worth = units_held * val_b
+                        # Calculate trade volume required to get back to target allocation
+                        trade_volume = abs(ideal_target_value - actual_current_value)
                         
-                    portfolio_history.append(day_worth)
-                    current_value = day_worth
+                        # Deduct trading friction based on trade volume size
+                        trade_fee = trade_volume * fee_pct
+                        quarter_fees += trade_fee
+                        total_fees_accumulated += trade_fee
+                        
+                        # Apply the adjustment: re-calculate exact shares held
+                        shares_held[t] = (ideal_target_value - trade_fee) / row[t]
+                        
+                    # Recalculate portfolio value after rebalancing friction is subtracted
+                    current_portfolio_value = sum(shares_held[t] * row[t] for t in tickers)
                     
-                df_test['Portfolio_Value'] = portfolio_history
+                    rebalance_log.append(
+                        f"🔄 Rebalanced on {idx.strftime('%Y-%m-%d')} | "
+                        f"Portfolio Value: ${current_portfolio_value:,.2f} | "
+                        f"Friction Costs Paid: ${quarter_fees:.2f}"
+                    )
+                    
+                portfolio_history.append(current_portfolio_value)
                 
-                # 4. Performance Diagnostics
-                final_portfolio_value = portfolio_history[-1]
-                algo_return = ((final_portfolio_value - starting_cash) / starting_cash) * 100
-                bench_a_ret = ((df_test[asset_a].iloc[-1] - df_test[asset_a].iloc[0]) / df_test[asset_a].iloc[0]) * 100
-                bench_b_ret = ((df_test[asset_b].iloc[-1] - df_test[asset_b].iloc[0]) / df_test[asset_b].iloc[0]) * 100
+            df['Strategic_Portfolio'] = portfolio_history
+            
+            # 4. Performance Metrics vs. Standard Equity Benchmark (SPY)
+            final_strategy_value = portfolio_history[-1]
+            strategy_pct_return = ((final_strategy_value - starting_capital) / starting_capital) * 100
+            
+            spy_initial = df['SPY'].iloc[0]
+            spy_final = df['SPY'].iloc[-1]
+            spy_benchmark_return = ((spy_final - spy_initial) / spy_initial) * 100
+            final_spy_value = starting_capital * (1 + (spy_benchmark_return / 100))
+            
+            # Max Drawdown Calculation (Measures structural risk/portfolio pain)
+            def compute_max_drawdown(series):
+                rolling_max = series.cummax()
+                drawdowns = (series - rolling_max) / rolling_max
+                return drawdowns.min() * 100
                 
-                # Display Metrics Panel
-                st.subheader("🏁 Friction-Adjusted Strategy Scorecard")
-                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-                
-                col_m1.metric("Net Strategy Value", f"${final_portfolio_value:,.2f}", f"{algo_return:+.2f}%")
-                col_m2.metric(f"Hold {asset_a}", f"${starting_cash * (1 + bench_a_ret/100):,.2f}", f"{bench_a_ret:+.2f}%")
-                col_m3.metric("Total Executed Trades", f"{total_trades} Rebalances")
-                col_m4.metric("Total Friction Overhead", f"${total_fees_paid:,.2f}", delta="Capital Deducted", delta_color="inverse")
-                
-                st.markdown("---")
-                st.subheader("📈 Capital Growth Curves")
-                
-                df_test['Growth_Strategy'] = df_test['Portfolio_Value']
-                df_test[f'Growth_Hold_{asset_a}'] = (df_test[asset_a] / df_test[asset_a].iloc[0]) * starting_cash
-                df_test[f'Growth_Hold_{asset_b}'] = (df_test[asset_b] / df_test[asset_b].iloc[0]) * starting_cash
-                st.line_chart(df_test[['Growth_Strategy', f'Growth_Hold_{asset_a}', f'Growth_Hold_{asset_b}']])
-                
-                if allocation_log:
-                    with st.expander("📝 System Rebalancing History & Friction Logs"):
-                        for event in allocation_log:
+            strat_drawdown = compute_max_drawdown(df['Strategic_Portfolio'])
+            spy_drawdown = compute_max_drawdown(df['SPY'])
+            
+            # 5. Render Institutional Dashboard Panel
+            st.subheader("🏁 Diversified Strategy Performance Scorecard")
+            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+            
+            col_m1.metric("Diversified Portfolio Value", f"${final_strategy_value:,.2f}", f"{strategy_pct_return:+.2f}%")
+            col_m2.metric("Pure US Stock Value (SPY)", f"${final_spy_value:,.2f}", f"{spy_benchmark_return:+.2f}%")
+            col_m3.metric("Portfolio Max Peak-to-Trough Loss", f"{strat_drawdown:.2f}%", help="Maximum downside drop from historical peaks.")
+            col_m4.metric("Pure Equity (SPY) Max Loss", f"{spy_drawdown:.2f}%", delta="Benchmark Risk Volatility", delta_color="inverse")
+            
+            st.markdown("---")
+            st.subheader("📈 Total Capital Growth Trackers")
+            
+            # Normalize display values to visualize side-by-side growth trajectory clearly
+            chart_df = pd.DataFrame(index=df.index)
+            chart_df['Strategic Diversified Portfolio'] = df['Strategic_Portfolio']
+            chart_df['Pure US Equity Index (SPY)'] = (df['SPY'] / df['SPY'].iloc[0]) * starting_capital
+            st.line_chart(chart_df)
+            
+            # Display execution context
+            col_l1, col_l2 = st.columns([2, 1])
+            with col_l1:
+                if rebalance_log:
+                    with st.expander("📝 System Rebalancing Logs"):
+                        for event in rebalance_log:
                             st.write(event)
-                            
+            with col_l2:
+                with st.expander("💸 Overhead Audit"):
+                    st.write(f"Total Portfolio Trades Executed: {len(rebalance_log) * 4}")
+                    st.write(f"Total Lifetime Rebalance Costs: ${total_fees_accumulated:.2f}")
+                    
     except Exception as error_msg:
         st.error(f"Execution Error: {error_msg}")
