@@ -2,126 +2,124 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# 1. Page Config
-st.set_page_config(page_title="16-Year Catch-Up Engine", layout="wide")
-st.title("🚀 The 16-Year Accelerated Retirement Matrix")
-st.write("A customized wealth-compounding framework engineered for maximum efficiency between age 52 and 68.")
+# 1. Page Configuration
+st.set_page_config(page_title="UK Electricity Auditor", layout="wide")
+st.title("⚡ UK Household Electricity Profiler & Cost Auditor")
+st.write("A dedicated analytical engine designed to isolate, profile, and audit domestic electricity consumption against official Ofgem price cap limits.")
 
 # ==========================================
-# 2. CONTROL PANEL (SIDEBAR)
+# 2. HOUSEHOLD CONFIGURATION PANEL
 # ==========================================
-st.sidebar.header("🎛️ Your Current Position")
+st.sidebar.header("🏡 Property Profile")
 
-current_age = 52
-target_age = 68
-years_running = target_age - current_age
-
-initial_pot = st.sidebar.number_input("Current Retirement Pot (£)", min_value=0, value=50000, step=10000)
-net_monthly_out_of_pocket = st.sidebar.slider("Net Monthly Cash You Can Invest (£)", min_value=100, max_value=5000, value=1000, step=100)
-
-st.sidebar.markdown("---")
-st.sidebar.header("⚡ Tax Arbitrage Boost")
-tax_bracket = st.sidebar.selectbox(
-    "Your UK Income Tax Bracket:",
-    ["Basic Rate (20% Tax Relief)", "Higher Rate (40% Tax Relief)", "Additional Rate (45% Tax Relief)"]
+property_profile = st.sidebar.selectbox(
+    "Select Your Property Size:",
+    [
+        "Small Flat / 1-Bed Mid-Terrace (Low Usage)",
+        "Medium House / 3-Bed Semi-Detached (Average Usage)",
+        "Large House / 4+ Bed Detached (High Usage)",
+        "Custom Energy User (Manual Entry)"
+    ]
 )
 
-st.sidebar.markdown("---")
-st.sidebar.header("📈 Market Settings")
-market_return = st.sidebar.slider("Expected Annual Index Return (%)", min_value=4.0, max_value=10.0, value=7.5, step=0.5) / 100
-inflation_drag = st.sidebar.slider("Assumed Inflation (%)", min_value=0.0, max_value=5.0, value=2.5, step=0.1) / 100
-
-# ==========================================
-# 3. MATHEMATICAL COMPUTATIONS
-# ==========================================
-# Compute the instant percentage boost from tax relief
-if "Basic" in tax_bracket:
-    boost_factor = 1 / (1 - 0.20)  # Grosses up £80 to £100 (25% boost)
-    tax_gained_pct = "25%"
-elif "Higher" in tax_bracket:
-    boost_factor = 1 / (1 - 0.40)  # Grosses up £60 to £100 (66.6% boost)
-    tax_gained_pct = "66.6%"
+# Map Ofgem Typical Domestic Consumption Values (TDCVs) for electricity
+if "Small Flat" in property_profile:
+    default_elec_kwh = 1800
+    st.sidebar.info("📊 Benchmark applied: 1,800 kWh / year (Ofgem Low)")
+elif "Medium" in property_profile:
+    default_elec_kwh = 2900
+    st.sidebar.info("📊 Benchmark applied: 2,900 kWh / year (Ofgem Medium)")
+elif "Large" in property_profile:
+    default_elec_kwh = 4100
+    st.sidebar.info("📊 Benchmark applied: 4,100 kWh / year (Ofgem High)")
 else:
-    boost_factor = 1 / (1 - 0.45)  # Grosses up £55 to £100 (81.8% boost)
-    tax_gained_pct = "81.8%"
+    default_elec_kwh = 3000
 
-# Calculate the actual gross amount entering the investment pot monthly
-gross_monthly_contribution = net_monthly_out_of_pocket * boost_factor
+# Interactive slider for fine-tuning exact usage
+annual_elec_kwh = st.sidebar.slider("Annual Consumption (kWh)", min_value=500, max_value=15000, value=default_elec_kwh, step=100)
 
-# Calculate real rate of return net of inflation
-real_annual_growth = market_return - inflation_drag
-real_monthly_growth = (1 + real_annual_growth) ** (1/12) - 1
-
-# Simulation Loop for 16 years (192 months)
-total_months = years_running * 12
-pot_balances = []
-out_of_pocket_total = []
-government_contributions = []
-
-running_pot = initial_pot
-cumulative_out_of_pocket = initial_pot
-cumulative_gov_boost = 0.0
-
-for m in range(1, total_months + 1):
-    # Market growth on existing pot
-    growth_earnings = running_pot * real_monthly_growth
-    
-    # Calculate government's free addition this month
-    monthly_gov_boost = gross_monthly_contribution - net_monthly_out_of_pocket
-    
-    # Update running totals
-    running_pot += growth_earnings + gross_monthly_contribution
-    cumulative_out_of_pocket += net_monthly_out_of_pocket
-    cumulative_gov_boost += monthly_gov_boost
-    
-    # Track data points
-    pot_balances.append(running_pot)
-    out_of_pocket_total.append(cumulative_out_of_pocket)
-    government_contributions.append(cumulative_gov_boost)
-
-# Build Time Matrix DataFrame
-timeline_years = np.arange(1, total_months + 1) / 12
-df_timeline = pd.DataFrame({
-    "Total Retirement Pot": pot_balances,
-    "Your Cash Contributed": out_of_pocket_total,
-    "Free Gov Tax Relief Boost": government_contributions
-}, index=timeline_years + current_age)
-df_timeline.index.name = "Your Age"
-
-# Final values for display
-final_pot_size = pot_balances[-1]
-total_cash_put_in = out_of_pocket_total[-1]
-total_free_gov_money = government_contributions[-1]
-compound_growth_gained = final_pot_size - total_cash_put_in - total_free_gov_money
-
-# Safe sustainable annual income using a standard conservative 3.5% withdrawal rate at age 68
-annual_retirement_income = final_pot_size * 0.035
+st.sidebar.markdown("---")
+st.sidebar.header("💳 Payment Method")
+payment_method = st.sidebar.radio(
+    "Select Billing Method:",
+    ["Monthly Direct Debit", "Prepayment Meter", "Standard Credit (Pay on Bill Receipt)"]
+)
 
 # ==========================================
-# 4. DASHBOARD DISPLAY
+# 3. OFFICIAL 2026 PRICE CAP ENGINE
 # ==========================================
-st.subheader(f"📊 The Age 68 Projection Scorecard ({years_running} Year Sprint)")
+# Rates set by Ofgem for Q2 2026 national averages
+if payment_method == "Monthly Direct Debit":
+    elec_unit_rate = 0.2467       # 24.67p per kWh
+    elec_standing_charge = 0.5721 # 57.21p per day
+elif payment_method == "Prepayment Meter":
+    elec_unit_rate = 0.2380       # 23.80p per kWh
+    elec_standing_charge = 0.5600 # 56.00p per day
+else: # Standard Credit
+    elec_unit_rate = 0.2650       # 26.50p per kWh
+    elec_standing_charge = 0.6200 # 62.00p per day
+
+# Mathematical Calculations
+days_in_year = 365.25
+
+# Cost Computations
+annual_usage_cost = annual_elec_kwh * elec_unit_rate
+annual_standing_cost = elec_standing_charge * days_in_year
+total_annual_bill = annual_usage_cost + annual_standing_cost
+
+total_monthly_average = total_annual_bill / 12
+total_daily_average = total_annual_bill / days_in_year
+
+# ==========================================
+# 4. INTERFACE DISPLAY & DATA VISUALS
+# ==========================================
+st.subheader(f"📊 Electricity Outlay Metrics ({payment_method})")
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Projected Pot Size at 68", f"£{final_pot_size:,.0f}", "Inflation Adjusted")
-col2.metric("Instant Tax Return Boost", f"+{tax_gained_pct}", "Day-One Alpha")
-col3.metric("Free Gov Money Harvested", f"£{total_free_gov_money:,.0f}")
-col4.metric("Est. Sustainable Yearly Income", f"£{annual_retirement_income:,.0f}", "At 3.5% Withdrawal")
+col1.metric("Total Annual Bill", f"£{total_annual_bill:,.2f}")
+col2.metric("Average Monthly Cost", f"£{total_monthly_average:,.2f}")
+col3.metric("Average Daily Cost", f"£{total_daily_average:,.2f}")
+col4.metric("Annual Standing Charge", f"£{annual_standing_cost:,.2f}", f"{elec_standing_charge*100:.2f}p / day")
 
 st.markdown("---")
-st.subheader("📈 Runway Trajectory Profile")
-st.write("See how combining your cash, the immediate government tax boost, and market index compounding builds your base:")
-st.area_chart(df_timeline[["Your Cash Contributed", "Free Gov Tax Relief Boost", "Total Retirement Pot"]])
 
-with st.expander("📝 Year-by-Year Strategic Breakdown"):
-    breakdown_data = []
-    for year in range(1, years_running + 1):
-        m_idx = (year * 12) - 1
-        age_label = current_age + year
-        breakdown_data.append({
-            "Your Age": int(age_label),
-            "Total Pot Value": f"£{pot_balances[m_idx]:,.2f}",
-            "Your Invested Capital": f"£{out_of_pocket_total[m_idx]:,.2f}",
-            "Total Government Boost": f"£{government_contributions[m_idx]:,.2f}"
-        })
-    st.dataframe(pd.DataFrame(breakdown_data), use_container_width=True, hide_index=True)
+col_left, col_right = st.columns([3, 2])
+
+with col_left:
+    st.subheader("📋 Structural Cost Composition")
+    
+    # Structural breakdown of where the money goes
+    cost_breakdown_df = pd.DataFrame({
+        "Cost Component": ["Active Electricity Consumption", "Fixed Standing Charge Infrastructure"],
+        "Annual Cost (£)": [annual_usage_cost, annual_standing_cost]
+    })
+    
+    st.bar_chart(data=cost_breakdown_df, x="Cost Component", y="Annual Cost (£)", use_container_width=True)
+
+with col_right:
+    st.subheader("🔍 Annual Cost Audit Itemization")
+    
+    audit_table = [
+        {"Cost Center": "Unit Usage (Variable)", "Rate/Basis": f"{elec_unit_rate*100:.2f}p per kWh", "Annual Total": f"£{annual_usage_cost:,.2f}"},
+        {"Cost Center": "Standing Charge (Fixed)", "Rate/Basis": f"{elec_standing_charge*100:.2f}p per Day", "Annual Total": f"£{annual_standing_cost:,.2f}"},
+        {"Cost Center": "Grand Total Bill Summary", "Rate/Basis": f"{annual_elec_kwh:,} kWh/yr Total", "Annual Total": f"£{total_annual_bill:,.2f}"}
+    ]
+    st.dataframe(pd.DataFrame(audit_table), use_container_width=True, hide_index=True)
+
+# ==========================================
+# 5. EFFICIENCY & APPLIANCE MITIGATION
+# ==========================================
+st.markdown("---")
+st.subheader("💡 Strategic Efficiency & Optimization Simulator")
+st.write("Simulate the exact financial impact of lowering your electricity consumption through LED conversions, energy-efficient appliances, or solar additions.")
+
+efficiency_saving_pct = st.slider("Simulated Electricity Consumption Reduction (%)", min_value=0, max_value=50, value=20, step=5)
+
+new_usage_cost = annual_usage_cost * (1 - (efficiency_saving_pct / 100))
+new_grand_total = new_usage_cost + annual_standing_cost
+guaranteed_annual_savings = total_annual_bill - new_grand_total
+
+col_sav1, col_sav2, col_sav3 = st.columns(3)
+col_sav1.metric("Optimized Annual Total", f"£{new_grand_total:,.2f}")
+col_sav2.metric("Annual Cash Kept", f"£{guaranteed_annual_savings:,.2f}", delta="Reduced Outgoings", delta_color="inverse")
+col_sav3.metric("Optimized Monthly Average", f"£{new_grand_total/12:,.2f}")
