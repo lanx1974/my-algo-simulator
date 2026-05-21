@@ -3,123 +3,135 @@ import pandas as pd
 import numpy as np
 
 # 1. Page Configuration
-st.set_page_config(page_title="UK Electricity Auditor", layout="wide")
-st.title("⚡ UK Household Electricity Profiler & Cost Auditor")
-st.write("A dedicated analytical engine designed to isolate, profile, and audit domestic electricity consumption against official Ofgem price cap limits.")
+st.set_page_config(page_title="Power Cost Projector", layout="wide")
+st.title("⚡ UK Electricity 25-Year Forward Cost Projector")
+st.write("Demonstrating the real-world impact of historical compound inflation on future electricity overheads.")
 
 # ==========================================
-# 2. HOUSEHOLD CONFIGURATION PANEL
+# 2. CUSTOMER INPUT CONTROLS (SIDEBAR)
 # ==========================================
-st.sidebar.header("🏡 Property Profile")
+st.sidebar.header("👤 Customer Profile")
 
-property_profile = st.sidebar.selectbox(
-    "Select Your Property Size:",
-    [
-        "Small Flat / 1-Bed Mid-Terrace (Low Usage)",
-        "Medium House / 3-Bed Semi-Detached (Average Usage)",
-        "Large House / 4+ Bed Detached (High Usage)",
-        "Custom Energy User (Manual Entry)"
-    ]
+# Let the user input or slide to the customer's exact power requirements
+kwh_needed = st.sidebar.number_input(
+    "Customer Annual Power Needed (kWh):", 
+    min_value=500, 
+    max_value=100000, 
+    value=2900, 
+    step=100,
+    help="Ofgem benchmarks: Small Flat ~1,800 kWh | Medium Home ~2,900 kWh | Large Home ~4,100 kWh"
 )
-
-# Map Ofgem Typical Domestic Consumption Values (TDCVs) for electricity
-if "Small Flat" in property_profile:
-    default_elec_kwh = 1800
-    st.sidebar.info("📊 Benchmark applied: 1,800 kWh / year (Ofgem Low)")
-elif "Medium" in property_profile:
-    default_elec_kwh = 2900
-    st.sidebar.info("📊 Benchmark applied: 2,900 kWh / year (Ofgem Medium)")
-elif "Large" in property_profile:
-    default_elec_kwh = 4100
-    st.sidebar.info("📊 Benchmark applied: 4,100 kWh / year (Ofgem High)")
-else:
-    default_elec_kwh = 3000
-
-# Interactive slider for fine-tuning exact usage
-annual_elec_kwh = st.sidebar.slider("Annual Consumption (kWh)", min_value=500, max_value=15000, value=default_elec_kwh, step=100)
 
 st.sidebar.markdown("---")
-st.sidebar.header("💳 Payment Method")
-payment_method = st.sidebar.radio(
-    "Select Billing Method:",
-    ["Monthly Direct Debit", "Prepayment Meter", "Standard Credit (Pay on Bill Receipt)"]
-)
+st.sidebar.header("⚙️ Growth Parameters")
+
+# Hardcoded defaults matching our 25-year empirical data, but adjustable if needed
+base_year_price = 25.10  # 2026 price in pence per kWh
+historical_cagr = 5.2    # Annualized CAGR from 2001 to 2026
+
+cagr_input = st.sidebar.slider(
+    "Projected Annual Compound Rate (%):", 
+    min_value=1.0, 
+    max_value=12.0, 
+    value=historical_cagr, 
+    step=0.1,
+    help="Default is locked to the official 25-year historical UK compound rate (5.2%)"
+) / 100
 
 # ==========================================
-# 3. OFFICIAL 2026 PRICE CAP ENGINE
+# 3. HISTORICAL DATA EMBED
 # ==========================================
-# Rates set by Ofgem for Q2 2026 national averages
-if payment_method == "Monthly Direct Debit":
-    elec_unit_rate = 0.2467       # 24.67p per kWh
-    elec_standing_charge = 0.5721 # 57.21p per day
-elif payment_method == "Prepayment Meter":
-    elec_unit_rate = 0.2380       # 23.80p per kWh
-    elec_standing_charge = 0.5600 # 56.00p per day
-else: # Standard Credit
-    elec_unit_rate = 0.2650       # 26.50p per kWh
-    elec_standing_charge = 0.6200 # 62.00p per day
-
-# Mathematical Calculations
-days_in_year = 365.25
-
-# Cost Computations
-annual_usage_cost = annual_elec_kwh * elec_unit_rate
-annual_standing_cost = elec_standing_charge * days_in_year
-total_annual_bill = annual_usage_cost + annual_standing_cost
-
-total_monthly_average = total_annual_bill / 12
-total_daily_average = total_annual_bill / days_in_year
+hist_years = list(range(2001, 2027))
+hist_prices = [
+    7.00, 7.04, 7.11, 7.53, 8.34, 10.15, 10.96, 12.67, 13.24, 12.91, 
+    13.84, 14.63, 15.71, 16.57, 16.52, 16.49, 17.59, 19.10, 20.48, 20.52, 
+    21.87, 32.61, 34.00, 24.50, 25.80, 25.10
+]
 
 # ==========================================
-# 4. INTERFACE DISPLAY & DATA VISUALS
+# 4. FORWARD PROJECTION MATHEMATICS
 # ==========================================
-st.subheader(f"📊 Electricity Outlay Metrics ({payment_method})")
-col1, col2, col3, col4 = st.columns(4)
+proj_years = list(range(2026, 2052))  # 25 years forward from 2026 base
+proj_prices = []
+annual_costs = []
+accumulated_costs = []
 
-col1.metric("Total Annual Bill", f"£{total_annual_bill:,.2f}")
-col2.metric("Average Monthly Cost", f"£{total_monthly_average:,.2f}")
-col3.metric("Average Daily Cost", f"£{total_daily_average:,.2f}")
-col4.metric("Annual Standing Charge", f"£{annual_standing_cost:,.2f}", f"{elec_standing_charge*100:.2f}p / day")
+running_total_spend = 0.0
+
+for i, year in enumerate(proj_years):
+    # Calculate projected unit rate based on compound interest formula
+    n = year - 2026
+    projected_unit_rate = base_year_price * ((1 + cagr_input) ** n)
+    proj_prices.append(projected_unit_rate)
+    
+    # Calculate customer's annual cost in pounds: (kWh * pence) / 100
+    yearly_cost_pounds = (kwh_needed * projected_unit_rate) / 100
+    annual_costs.append(yearly_cost_pounds)
+    
+    # Track cumulative total overhead spend over the 25-year window
+    running_total_spend += yearly_cost_pounds
+    accumulated_costs.append(running_total_spend)
+
+# Build cleanly structured projection DataFrame
+df_projection = pd.DataFrame({
+    "Year": proj_years,
+    "Projected Unit Price (p/kWh)": proj_prices,
+    "Annual Cost to Customer (£)": annual_costs,
+    "Accumulated Cost Over Time (£)": accumulated_costs
+})
+
+# ==========================================
+# 5. HIGH-IMPACT CUSTOMER SCORECARD
+# ==========================================
+st.subheader(f"📊 Financial Summary for a {kwh_needed:,} kWh/yr Power Requirement")
+col1, col2, col3 = st.columns(3)
+
+# Key closing metrics for presentations
+col1.metric("Current 2026 Annual Cost", f"£{annual_costs[0]:,.2f}")
+col2.metric("Projected 2051 Annual Cost", f"£{annual_costs[-1]:,.2f}", f"+{((proj_prices[-1]/base_year_price)-1)*100:.0f}% rate rise")
+col3.metric("Total 25-Year Accumulated Cost", f"£{running_total_spend:,.2f}", "Total cash paid to grid")
 
 st.markdown("---")
 
-col_left, col_right = st.columns([3, 2])
+# ==========================================
+# 6. GRAPHICAL PRESENTATION OVERLAYS
+# ==========================================
+col_chart1, col_chart2 = st.columns(2)
 
-with col_left:
-    st.subheader("📋 Structural Cost Composition")
-    
-    # Structural breakdown of where the money goes
-    cost_breakdown_df = pd.DataFrame({
-        "Cost Component": ["Active Electricity Consumption", "Fixed Standing Charge Infrastructure"],
-        "Annual Cost (£)": [annual_usage_cost, annual_standing_cost]
+with col_chart1:
+    st.subheader("📈 The Annual Price Escalation Curve")
+    st.write("Customer's individual projected bill per single year:")
+    # Render line chart mapping the annual cost vector
+    df_chart_annual = df_projection.set_index("Year")[["Annual Cost to Customer (£)"]]
+    st.line_chart(df_chart_annual, color="#FF4B4B")
+
+with col_chart2:
+    st.subheader("💰 The Accumulated Wealth Drain")
+    st.write("The running total of all checks written to the utility company:")
+    # Render area chart to emphasize the heavy stacking nature of cumulative costs
+    df_chart_accum = df_projection.set_index("Year")[["Accumulated Cost Over Time (£)"]]
+    st.area_chart(df_chart_accum, color="#29B5E8")
+
+st.markdown("---")
+
+# ==========================================
+# 7. AUDITABLE DATA MATRIX TABLE
+# ==========================================
+st.subheader("🔍 Year-by-Year Projected Ledger for Customers")
+st.write("Full data printout showing compound trajectory step-by-step:")
+
+# Clean display modifications for client clarity
+df_display = df_projection.copy()
+df_display["Projected Unit Price (p/kWh)"] = df_display["Projected Unit Price (p/kWh)"].map("{:.2f}p".format)
+df_display["Annual Cost to Customer (£)"] = df_display["Annual Cost to Customer (£)"].map("£{:,.2f}".format)
+df_display["Accumulated Cost Over Time (£)"] = df_display["Accumulated Cost Over Time (£)"].map("£{:,.2f}".format)
+
+st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+# Expandable historical verification to prove credibility to savvy customers
+with st.expander("📊 View Historical Verification Data (2001 - 2026) used to back this CAGR"):
+    hist_df = pd.DataFrame({
+        "Year": hist_years,
+        "Official Avg Unit Rate": [f"{p:.2f}p" for p in hist_prices]
     })
-    
-    st.bar_chart(data=cost_breakdown_df, x="Cost Component", y="Annual Cost (£)", use_container_width=True)
-
-with col_right:
-    st.subheader("🔍 Annual Cost Audit Itemization")
-    
-    audit_table = [
-        {"Cost Center": "Unit Usage (Variable)", "Rate/Basis": f"{elec_unit_rate*100:.2f}p per kWh", "Annual Total": f"£{annual_usage_cost:,.2f}"},
-        {"Cost Center": "Standing Charge (Fixed)", "Rate/Basis": f"{elec_standing_charge*100:.2f}p per Day", "Annual Total": f"£{annual_standing_cost:,.2f}"},
-        {"Cost Center": "Grand Total Bill Summary", "Rate/Basis": f"{annual_elec_kwh:,} kWh/yr Total", "Annual Total": f"£{total_annual_bill:,.2f}"}
-    ]
-    st.dataframe(pd.DataFrame(audit_table), use_container_width=True, hide_index=True)
-
-# ==========================================
-# 5. EFFICIENCY & APPLIANCE MITIGATION
-# ==========================================
-st.markdown("---")
-st.subheader("💡 Strategic Efficiency & Optimization Simulator")
-st.write("Simulate the exact financial impact of lowering your electricity consumption through LED conversions, energy-efficient appliances, or solar additions.")
-
-efficiency_saving_pct = st.slider("Simulated Electricity Consumption Reduction (%)", min_value=0, max_value=50, value=20, step=5)
-
-new_usage_cost = annual_usage_cost * (1 - (efficiency_saving_pct / 100))
-new_grand_total = new_usage_cost + annual_standing_cost
-guaranteed_annual_savings = total_annual_bill - new_grand_total
-
-col_sav1, col_sav2, col_sav3 = st.columns(3)
-col_sav1.metric("Optimized Annual Total", f"£{new_grand_total:,.2f}")
-col_sav2.metric("Annual Cash Kept", f"£{guaranteed_annual_savings:,.2f}", delta="Reduced Outgoings", delta_color="inverse")
-col_sav3.metric("Optimized Monthly Average", f"£{new_grand_total/12:,.2f}")
+    st.dataframe(hist_df.T, use_container_width=True)
